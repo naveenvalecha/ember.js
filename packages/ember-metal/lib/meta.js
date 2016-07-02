@@ -6,6 +6,16 @@ import { EmptyObject, lookupDescriptor, symbol } from 'ember-utils';
 import isEnabled from './features';
 import { protoMethods as listenerMethods } from './meta_listeners';
 
+let metaCounters = window._metaCounters = {
+  peekCalls: 0,
+  peekParentCalls: 0,
+  peekPrototypeWalks: 0,
+  setCalls: 0,
+  deleteCalls: 0,
+  metaCalls: 0,
+  metaInstantiated: 0
+};
+
 /**
 @module ember-metal
 */
@@ -53,7 +63,8 @@ if (isEnabled('ember-glimmer-detect-backtracking-rerender') ||
 let memberNames = Object.keys(members);
 const META_FIELD = '__ember_meta__';
 
-function Meta(obj, parentMeta) {
+export function Meta(obj, parentMeta) {
+  metaCounters.metaInstantiated++;
   this._cache = undefined;
   this._weak = undefined;
   this._watching = undefined;
@@ -352,63 +363,120 @@ if (isEnabled('mandatory-setter')) {
   };
 }
 
+const HAS_NATIVE_WEAKMAP = (function() {
+  // detect if `WeakMap` is even present
+  let hasWeakMap = typeof WeakMap === 'function';
+  if (!hasWeakMap) { return false; }
+
+  let instance = new WeakMap();
+  // use `Object`'s `.toString` directly to prevent us from detecting
+  // polyfills as native weakmaps
+  return Object.prototype.toString.call(instance) === '[object WeakMap]';
+})();
+
+let setMeta, peekMeta, meta, deleteMeta;
+
 // choose the one appropriate for given platform
-let setMeta = function(obj, meta) {
-  // if `null` already, just set it to the new value
-  // otherwise define property first
-  if (obj[META_FIELD] !== null) {
-    if (obj.__defineNonEnumerable) {
-      obj.__defineNonEnumerable(EMBER_META_PROPERTY);
-    } else {
-      Object.defineProperty(obj, META_FIELD, META_DESC);
-    }
-  }
+if (HAS_NATIVE_WEAKMAP) {
+  let getPrototypeOf = Object.getPrototypeOf;
+  let metaStore = new WeakMap();
 
-  obj[META_FIELD] = meta;
-};
+  setMeta = function WeakMap_setMeta(obj, meta) {
+    metaCounters.setCalls++;
+    metaStore.set(obj, meta);
+  };
 
-/**
-  Retrieves the meta hash for an object. If `writable` is true ensures the
-  hash is writable for this object as well.
+  peekMeta = function WeakMap_peekMeta(obj) {
+    metaCounters.peekCalls++;
+    return metaStore.get(obj);
+  };
 
-  The meta object contains information about computed property descriptors as
-  well as any watched properties and other information. You generally will
-  not access this information directly but instead work with higher level
-  methods that manipulate this hash indirectly.
+  deleteMeta = function WeakMap_deleteMeta(obj) {
+    metaCounters.deleteCalls++;
 
-  @method meta
-  @for Ember
-  @private
+    // set value to `null` so that we can detect
+    // a deleted meta in peekMeta later
+    metaStore.set(obj, null);
+  };
 
-  @param {Object} obj The object to retrieve meta for
-  @param {Boolean} [writable=true] Pass `false` if you do not intend to modify
-    the meta hash, allowing the method to avoid making an unnecessary copy.
-  @return {Object} the meta hash for an object
-*/
-export function meta(obj) {
-  let maybeMeta = peekMeta(obj);
-  let parent;
+  /**
+   Retrieves the meta hash for an object. If `writable` is true ensures the
+   hash is writable for this object as well.
 
-  // remove this code, in-favor of explicit parent
-  if (maybeMeta) {
-    if (maybeMeta.source === obj) {
+   The meta object contains information about computed property descriptors as
+   well as any watched properties and other information. You generally will
+   not access this information directly but instead work with higher level
+   methods that manipulate this hash indirectly.
+
+   @method meta
+   @for Ember
+   @private
+
+   @param {Object} obj The object to retrieve meta for
+   @param {Boolean} [writable=true] Pass `false` if you do not intend to modify
+   the meta hash, allowing the method to avoid making an unnecessary copy.
+   @return {Object} the meta hash for an object
+  */
+  meta = function WeakMap_meta(obj) {
+    metaCounters.metaCalls++;
+    let maybeMeta = peekMeta(obj);
+
+    if (maybeMeta) {
       return maybeMeta;
     }
-    parent = maybeMeta;
-  }
 
-  let newMeta = new Meta(obj, parent);
-  setMeta(obj, newMeta);
-  return newMeta;
+    let newMeta = new Meta(obj, peekMeta(getPrototypeOf(obj)));
+    setMeta(obj, newMeta);
+    return newMeta;
+  };
+} else {
+  setMeta = function Fallback_setMeta(obj, meta) {
+    // if `null` already, just set it to the new value
+    // otherwise define property first
+    if (obj[META_FIELD] !== null) {
+      if (obj.__defineNonEnumerable) {
+        obj.__defineNonEnumerable(EMBER_META_PROPERTY);
+      } else {
+        Object.defineProperty(obj, META_FIELD, META_DESC);
+      }
+    }
+
+    obj[META_FIELD] = meta;
+  };
+
+  peekMeta = function Fallback_peekMeta(obj) {
+    return obj[META_FIELD];
+  };
+
+  deleteMeta = function Fallback_deleteMeta(obj) {
+    if (typeof obj[META_FIELD] !== 'object') {
+      return;
+    }
+    obj[META_FIELD] = null;
+  };
+
+  meta = function Fallback_meta(obj) {
+    metaCounters.metaCalls++;
+    let maybeMeta = peekMeta(obj);
+    let parent;
+
+    // remove this code, in-favor of explicit parent
+    if (maybeMeta) {
+      if (maybeMeta.source === obj) {
+        return maybeMeta;
+      }
+      parent = maybeMeta;
+    }
+
+    let newMeta = new Meta(obj, parent);
+    setMeta(obj, newMeta);
+    return newMeta;
+  };
 }
 
-export function peekMeta(obj) {
-  return obj[META_FIELD];
-}
-
-export function deleteMeta(obj) {
-  if (typeof obj[META_FIELD] !== 'object') {
-    return;
-  }
-  obj[META_FIELD] = null;
-}
+export {
+  peekMeta,
+  setMeta,
+  deleteMeta,
+  meta
+};
