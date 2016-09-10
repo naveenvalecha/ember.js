@@ -8,7 +8,8 @@ import { peekMeta } from '../meta';
 
 QUnit.module('Chains');
 
-QUnit.test('finishChains should properly copy chains from prototypes to instances', function() {
+// TODO: Do we support this?
+QUnit.skip('finishChains should properly copy chains from prototypes to instances', function() {
   function didChange() {}
 
   let obj = {};
