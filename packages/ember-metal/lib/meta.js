@@ -5,9 +5,9 @@
 import { EmptyObject, lookupDescriptor, symbol } from 'ember-utils';
 import isEnabled from './features';
 import { protoMethods as listenerMethods } from './meta_listeners';
-import { environment } from 'ember-environment';
+import { runInDebug } from './debug';
 
-let metaCounters = {
+let counters = {
   peekCalls: 0,
   peekParentCalls: 0,
   peekPrototypeWalks: 0,
@@ -17,9 +17,6 @@ let metaCounters = {
   metaInstantiated: 0
 };
 
-if (environment.window) {
-  environment.window._metaCounters = metaCounters;
-}
 /**
 @module ember-metal
 */
@@ -68,7 +65,8 @@ let memberNames = Object.keys(members);
 const META_FIELD = '__ember_meta__';
 
 export function Meta(obj, parentMeta) {
-  metaCounters.metaInstantiated++;
+  runInDebug(() => counters.metaInstantiated++);
+
   this._cache = undefined;
   this._weak = undefined;
   this._watching = undefined;
@@ -386,17 +384,18 @@ if (HAS_NATIVE_WEAKMAP) {
   let metaStore = new WeakMap();
 
   setMeta = function WeakMap_setMeta(obj, meta) {
-    metaCounters.setCalls++;
+    runInDebug(() => counters.setCalls++);
     metaStore.set(obj, meta);
   };
 
   peekMeta = function WeakMap_peekMeta(obj) {
-    metaCounters.peekCalls++;
+    runInDebug(() => counters.peekCalls++);
+
     return metaStore.get(obj);
   };
 
   deleteMeta = function WeakMap_deleteMeta(obj) {
-    metaCounters.deleteCalls++;
+    runInDebug(() => counters.deleteCalls++);
 
     // set value to `null` so that we can detect
     // a deleted meta in peekMeta later
@@ -422,7 +421,8 @@ if (HAS_NATIVE_WEAKMAP) {
    @return {Object} the meta hash for an object
   */
   meta = function WeakMap_meta(obj) {
-    metaCounters.metaCalls++;
+    runInDebug(() => counters.metaCalls++);
+
     let maybeMeta = peekMeta(obj);
 
     if (maybeMeta) {
@@ -460,7 +460,8 @@ if (HAS_NATIVE_WEAKMAP) {
   };
 
   meta = function Fallback_meta(obj) {
-    metaCounters.metaCalls++;
+    runInDebug(() => counters.metaCalls++);
+
     let maybeMeta = peekMeta(obj);
     let parent;
 
@@ -482,5 +483,6 @@ export {
   peekMeta,
   setMeta,
   deleteMeta,
-  meta
+  meta,
+  counters
 };
