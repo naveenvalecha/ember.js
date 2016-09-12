@@ -5,8 +5,9 @@
 import { EmptyObject, lookupDescriptor, symbol } from 'ember-utils';
 import isEnabled from './features';
 import { protoMethods as listenerMethods } from './meta_listeners';
+import { environment } from 'ember-environment';
 
-let metaCounters = window._metaCounters = {
+let metaCounters = {
   peekCalls: 0,
   peekParentCalls: 0,
   peekPrototypeWalks: 0,
@@ -16,6 +17,9 @@ let metaCounters = window._metaCounters = {
   metaInstantiated: 0
 };
 
+if (environment.window) {
+  environment.window._metaCounters = metaCounters;
+}
 /**
 @module ember-metal
 */
